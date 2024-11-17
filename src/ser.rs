@@ -8,13 +8,19 @@ use std::{
 /// Struct that will handle the output of serialization
 pub struct RlpSerializer {
     pub output: Vec<u8>,
+    pub list_output: Vec<u8>,
+    pub is_list: bool,
 }
 
 pub fn to_rlp_bytes<T>(value: &T) -> Result<Vec<u8>, ()>
 where
     T: Serialize,
 {
-    let mut serializer = RlpSerializer { output: Vec::new() };
+    let mut serializer = RlpSerializer {
+        output: Vec::new(),
+        list_output: Vec::new(),
+        is_list: false,
+    };
     value.serialize(&mut serializer).unwrap();
     Ok(serializer.output)
 }
@@ -145,7 +151,6 @@ impl<'a> serde::ser::Serializer for &'a mut RlpSerializer {
     // The error type when some error occurs during serialization.
     type Error = Error;
 
-
     type SerializeSeq = Self;
     type SerializeTuple = Self;
     type SerializeTupleStruct = Self;
@@ -195,7 +200,6 @@ impl<'a> serde::ser::Serializer for &'a mut RlpSerializer {
     }
 
     fn serialize_u64(self, v: u64) -> Result<Self::Ok, Self::Error> {
-
         self.serialize_number(v as u64)
     }
 
@@ -217,24 +221,41 @@ impl<'a> serde::ser::Serializer for &'a mut RlpSerializer {
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        println!("byte serialise");
         if v.len() == 1 && v[0] < 0x7f {
             //Single byte
-            self.output.push(v[0]);
+            if self.is_list {
+                self.list_output.push(v[0]);
+            } else {
+                self.output.push(v[0]);
+            }
         } else if v.len() < 55 {
             //This constitutes of empty array if string is just empty ("")
             let prefix = 0x80u8 + v.len() as u8;
-            self.output.push(prefix);
-            self.output.extend_from_slice(v);
+            if self.is_list {
+                self.list_output.push(prefix);
+                self.list_output.extend_from_slice(v);
+            } else {
+                self.output.push(prefix);
+                self.output.extend_from_slice(v);
+            }
         } else {
             let mut buff = [0u8; 9];
             let size_str_len_bytes = self.write_bytes(v.len() as u64, &mut buff[1..]);
             buff[0] = 0xB7 + size_str_len_bytes;
-            //Write both the Prefix (Added with size_str_len_bytes) and the length of the string (the byte representation)
-            self.output
-                .extend_from_slice(&buff[..size_str_len_bytes as usize + 1 as usize]);
-            //Append the actual string
-            self.output.extend_from_slice(v);
+
+            if self.is_list {
+                //Write both the Prefix (Added with size_str_len_bytes) and the length of the string (the byte representation)
+                self.list_output
+                    .extend_from_slice(&buff[..size_str_len_bytes as usize + 1 as usize]);
+                //Append the actual string
+                self.list_output.extend_from_slice(v);
+            } else {
+                //Write both the Prefix (Added with size_str_len_bytes) and the length of the string (the byte representation)
+                self.output
+                    .extend_from_slice(&buff[..size_str_len_bytes as usize + 1 as usize]);
+                //Append the actual string
+                self.output.extend_from_slice(v);
+            }
         }
 
         Ok(())
@@ -251,7 +272,7 @@ impl<'a> serde::ser::Serializer for &'a mut RlpSerializer {
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
         let mut s = [0u8; 4];
-        let char_bytes = v.encode_utf8(&mut s);
+        v.encode_utf8(&mut s);
         self.serialize_bytes(&s[..v.len_utf8()])
     }
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
@@ -272,16 +293,23 @@ impl<'a> serde::ser::Serializer for &'a mut RlpSerializer {
         value.serialize(self)
     }
 
-    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        Err(Error)
-    }
-
     fn serialize_struct(
         self,
         name: &'static str,
         len: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
         Ok(self)
+    }
+
+    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        // Notify to other serializer function that going forward its going to serialize a list
+        // The end of serializer will be in end() function of SerializeSeq
+        self.is_list = true;
+        Ok(self)
+    }
+
+    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+        Err(Error)
     }
 
     fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Self::Error> {
@@ -297,10 +325,6 @@ impl<'a> serde::ser::Serializer for &'a mut RlpSerializer {
         T: ?Sized + Serialize,
     {
         Err(Error)
-    }
-
-    fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        Ok(self)
     }
 
     fn serialize_newtype_variant<T>(
@@ -358,9 +382,7 @@ impl<'a> serde::ser::Serializer for &'a mut RlpSerializer {
     }
 }
 
-
 impl<'a> ser::SerializeSeq for &'a mut RlpSerializer {
-
     type Ok = ();
 
     type Error = Error;
@@ -369,11 +391,18 @@ impl<'a> ser::SerializeSeq for &'a mut RlpSerializer {
     where
         T: ?Sized + Serialize,
     {
-
         value.serialize(&mut **self)
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
+        let prefix = 0xc0 + self.list_output.len() as u8;
+
+        self.output.push(prefix);
+        self.output.extend_from_slice(&self.list_output);
+
+        //Flush list output
+        self.list_output.clear();
+        self.is_list = false;
         Ok(())
     }
 }
@@ -457,7 +486,6 @@ impl<'a> ser::SerializeStruct for &'a mut RlpSerializer {
     where
         T: ?Sized + Serialize,
     {
-
         value.serialize(&mut **self)
     }
 
@@ -483,7 +511,6 @@ impl<'a> ser::SerializeStructVariant for &'a mut RlpSerializer {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -491,13 +518,14 @@ mod tests {
 
     #[derive(Serialize)]
     struct Point {
-        x: u64,
-        y: String,
+        x: Vec<String>,
     }
 
     #[test]
     fn ser_test() {
-        let point = Point { x: 5, y: String::from("Hello") };
+        let point = Point {
+            x: vec![String::from("cat"), String::from("dog")],
+        };
 
         let bytes = to_rlp_bytes(&point);
 

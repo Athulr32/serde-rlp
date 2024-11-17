@@ -1,9 +1,11 @@
-use core::num;
+use std::char;
+
 use serde::de::SeqAccess;
 use serde::de::Visitor;
-use serde::{de, Deserialize, Deserializer};
-use std::error::Error as StdError;
-use std::fmt;
+use serde::Deserializer;
+use serde::{de, Deserialize};
+
+use crate::error::Error;
 
 pub struct RlpDeserializer<'de> {
     pub input: &'de [u8],
@@ -51,24 +53,12 @@ impl<'de> RlpDeserializer<'de> {
 
         Ok(byte)
     }
-}
 
-#[derive(Debug)]
-pub struct Error;
+    pub fn read_bytes(&mut self, count: usize) -> &[u8] {
+        let bytes = &self.input[0..count];
+        self.input = &self.input[count..];
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            _ => write!(f, "Failed"),
-        }
-    }
-}
-
-impl StdError for Error {}
-
-impl serde::de::Error for Error {
-    fn custom<T: std::fmt::Display>(_msg: T) -> Self {
-        Error
+        bytes
     }
 }
 
@@ -85,6 +75,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
         } else if byte == 0x80 {
             return visitor.visit_bool(false);
         } else {
+            println!("Not supppp");
             return Err(Error);
         }
     }
@@ -93,6 +84,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        println!("any is Not Supported");
         unimplemented!()
     }
 
@@ -100,21 +92,55 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        unimplemented!()
+        let next_byte = self.next_byte().unwrap();
+
+        if next_byte < 0x7f {
+            visitor.visit_bytes(&[next_byte])
+        } else if next_byte < 0x80u8 + 55 {
+            let length_of_arr = next_byte - 0x80u8;
+            let bytes = self.read_bytes(length_of_arr as usize);
+            visitor.visit_bytes(bytes)
+        } else if next_byte < 0xbf {
+            let length_of_array_length_bytes = next_byte - 0xB7;
+            let array_length_bytes: [u8; 8] = self
+                .read_bytes(length_of_array_length_bytes as usize)
+                .try_into()
+                .unwrap();
+            let array_length = usize::from_be_bytes(array_length_bytes);
+            let data_bytes = self.read_bytes(array_length);
+            visitor.visit_bytes(data_bytes)
+        } else {
+            self.deserialize_bytes(visitor)
+        }
     }
 
     fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        unimplemented!()
+        self.deserialize_bytes(visitor)
     }
 
+    /// Char is Always 4 byte
+    /// Deserialise_byte cannot be used here because of that reason
     fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        unimplemented!()
+        let next_byte = self.next_byte().unwrap();
+        if next_byte < 0x7f {
+            //Since char is always 4 byte
+            let bytes = [next_byte, 0, 0, 0];
+            let num = u32::from_le_bytes(bytes);
+            let actual_char = char::from_u32(num).unwrap();
+            visitor.visit_char(actual_char)
+        } else {
+            let length_of_arr = next_byte - 0x80u8;
+            let bytes: [u8; 4] = self.read_bytes(length_of_arr as usize).try_into().unwrap();
+            let num = u32::from_le_bytes(bytes);
+            let actual_char = char::from_u32(num).unwrap();
+            visitor.visit_char(actual_char)
+        }
     }
 
     fn deserialize_enum<V>(
@@ -126,6 +152,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        println!("Enum is Not Supported");
         unimplemented!()
     }
 
@@ -154,6 +181,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        println!("identifier is Not Supported");
         unimplemented!()
     }
 
@@ -161,6 +189,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        println!("ignore Any is Not Supported");
         unimplemented!()
     }
 
@@ -168,6 +197,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        println!("Map is Not Supported");
         unimplemented!()
     }
 
@@ -179,6 +209,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        println!("NewType Struct is Not Supported");
         unimplemented!()
     }
 
@@ -186,6 +217,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        println!("Option is Not Supported");
         unimplemented!()
     }
 
@@ -193,6 +225,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        println!("Str is Not Supported");
         unimplemented!()
     }
 
@@ -200,7 +233,8 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        unimplemented!()
+        println!("More");
+        self.deserialize_bytes(visitor)
     }
 
     fn deserialize_struct<V>(
@@ -213,26 +247,6 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
         V: de::Visitor<'de>,
     {
         self.deserialize_seq(visitor)
-    }
-
-    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: de::Visitor<'de>,
-    {
-        println!("{:?}",len);
-        unimplemented!()
-    }
-
-    fn deserialize_tuple_struct<V>(
-        self,
-        name: &'static str,
-        len: usize,
-        visitor: V,
-    ) -> Result<V::Value, Self::Error>
-    where
-        V: de::Visitor<'de>,
-    {
-        unimplemented!()
     }
 
     fn deserialize_u128<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -252,11 +266,42 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     deserialize_int!(deserialize_i16, visit_i16, i16, 2);
     deserialize_int!(deserialize_i8, visit_i8, i8, 1);
 
+    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_seq(self)
+    }
+
+    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        println!("Tuple is Not Supported");
+        Err(Error) //Not Supported
+    }
+
+    fn deserialize_tuple_struct<V>(
+        self,
+        name: &'static str,
+        len: usize,
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        println!("Tuple Struct is Not Supported");
+        // Not Supported
+        Err(Error)
+    }
+
+    ///TODO:
     fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        unimplemented!()
+        println!("Tuple is Not Supported");
+        return Err(Error);
     }
 
     fn deserialize_unit_struct<V>(
@@ -267,14 +312,9 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        unimplemented!()
-    }
-
-    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: de::Visitor<'de>,
-    {
-        visitor.visit_seq(self)
+        println!("Unit Struct is Not Supported");
+        // Not Supported
+        Err(Error)
     }
 }
 
@@ -285,14 +325,12 @@ impl<'a, 'de> SeqAccess<'de> for &'a mut RlpDeserializer<'de> {
     where
         T: de::DeserializeSeed<'de>,
     {
+        //Don't deserialise if input becomes empty
+        if self.input.is_empty() {
+            return Ok(None);
+        }
         seed.deserialize(&mut **self).map(Some)
     }
-}
-
-#[derive(Deserialize, Debug)]
-struct Point {
-    x: u8,
-    y: u8,
 }
 
 #[cfg(test)]
@@ -302,13 +340,12 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Debug)]
     struct Point {
-        x: u64,
-        y: [u8;10],
+        y: Vec<String>,
     }
 
     #[test]
     fn des_test() {
-        let bytes = from_rlp_bytes::<Point>(&[5, 128]);
+        let bytes = from_rlp_bytes::<Point>(&[200, 131, 99, 97, 116, 131, 100, 111, 103]);
 
         println!("{:?}", bytes);
     }
