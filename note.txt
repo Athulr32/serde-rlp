@@ -1,0 +1,2 @@
+[u8],Vec<u8> -> SerializeSeq
+[u8;10] -> Tuple (We are Not Considering That)

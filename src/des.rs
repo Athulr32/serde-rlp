@@ -7,6 +7,7 @@ use serde::{de, Deserialize};
 
 use crate::error::Error;
 
+#[derive(Debug)]
 pub struct RlpDeserializer<'de> {
     pub input: &'de [u8],
 }
@@ -15,7 +16,10 @@ pub fn from_rlp_bytes<'de, T>(v: &'de [u8]) -> Result<T, Error>
 where
     T: de::Deserialize<'de>,
 {
-    let mut deserializer = RlpDeserializer { input: v };
+    let mut deserializer = RlpDeserializer {
+        input: v
+        
+    };
     let value = de::Deserialize::deserialize(&mut deserializer);
 
     value
@@ -60,6 +64,37 @@ impl<'de> RlpDeserializer<'de> {
 
         bytes
     }
+
+    pub fn peak(&self) -> u8 {
+        self.input[0]
+    }
+
+
+    // Read the RLP prefix and return type and length
+    fn read_prefix(&mut self) -> Result<(u8, usize),Error> {
+
+        let first_byte = self.next_byte().unwrap();
+
+        match first_byte {
+            // Single byte
+            0..=0x7f => Ok((first_byte, 1)),
+            
+            // Short string
+            0x80..=0xb7 => {
+                let length = (first_byte - 0x80) as usize;
+                Ok((first_byte, length))
+            },
+
+            // Short list 
+            0xc0..=0xf7 => {
+                let length = (first_byte - 0xc0) as usize;
+                Ok((first_byte, length))
+            },
+            
+            // Long list/string handling would go here
+            _ => Err(de::Error::custom("unsupported RLP prefix"))
+        }
+    }
 }
 
 impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
@@ -94,13 +129,14 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     {
         let next_byte = self.next_byte().unwrap();
 
-        if next_byte < 0x7f {
+        if next_byte <= 0x7f {
             visitor.visit_bytes(&[next_byte])
-        } else if next_byte < 0x80u8 + 55 {
+        } else if next_byte >= 0x80 && next_byte <= 0xb7 {
             let length_of_arr = next_byte - 0x80u8;
             let bytes = self.read_bytes(length_of_arr as usize);
+
             visitor.visit_bytes(bytes)
-        } else if next_byte < 0xbf {
+        } else if next_byte <= 0xbf {
             let length_of_array_length_bytes = next_byte - 0xB7;
             let array_length_bytes: [u8; 8] = self
                 .read_bytes(length_of_array_length_bytes as usize)
@@ -110,7 +146,10 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
             let data_bytes = self.read_bytes(array_length);
             visitor.visit_bytes(data_bytes)
         } else {
-            self.deserialize_bytes(visitor)
+            println!("HI");
+            // Its a list of items
+            // Check if the item is >0xbf
+            self.deserialize_seq(visitor)
         }
     }
 
@@ -233,7 +272,6 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        println!("More");
         self.deserialize_bytes(visitor)
     }
 
@@ -270,8 +308,22 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        visitor.visit_seq(self)
+        let(prefix,length) = self.read_prefix().unwrap();
+
+        match prefix {
+            0xc0..=0xf7 => {
+
+                visitor.be(Some(length))
+
+            },
+            _ => {
+
+            }
+
+
+            Err(Error) //Not Supported
     }
+}
 
     fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where
@@ -325,12 +377,17 @@ impl<'a, 'de> SeqAccess<'de> for &'a mut RlpDeserializer<'de> {
     where
         T: de::DeserializeSeed<'de>,
     {
+
         //Don't deserialise if input becomes empty
-        if self.input.is_empty() {
+        if self.input.is_empty(){
             return Ok(None);
-        }
+        };
         seed.deserialize(&mut **self).map(Some)
     }
+
+
+
+    
 }
 
 #[cfg(test)]
@@ -340,13 +397,16 @@ mod tests {
 
     #[derive(Serialize, Deserialize, Debug)]
     struct Point {
-        y: Vec<String>,
+        y: Vec<Vec<String>>,
     }
 
     #[test]
     fn des_test() {
-        let bytes = from_rlp_bytes::<Point>(&[200, 131, 99, 97, 116, 131, 100, 111, 103]);
+        let bytes = from_rlp_bytes::<Point>(&[
+            210, 200, 131, 99, 97, 116, 131, 100, 111, 103, 200, 131, 99, 97, 116, 131, 100, 111,
+            103,
+        ]);
 
-        println!("{:?}", bytes);
+        println!("{:?}", bytes.unwrap());
     }
 }

@@ -9,7 +9,9 @@ use std::{
 pub struct RlpSerializer {
     pub output: Vec<u8>,
     pub list_output: Vec<u8>,
+    pub actual_list_output: Vec<u8>,
     pub is_list: bool,
+    pub total_list: u8,
 }
 
 pub fn to_rlp_bytes<T>(value: &T) -> Result<Vec<u8>, ()>
@@ -19,7 +21,9 @@ where
     let mut serializer = RlpSerializer {
         output: Vec::new(),
         list_output: Vec::new(),
+        actual_list_output: Vec::new(),
         is_list: false,
+        total_list: 0,
     };
     value.serialize(&mut serializer).unwrap();
     Ok(serializer.output)
@@ -305,6 +309,7 @@ impl<'a> serde::ser::Serializer for &'a mut RlpSerializer {
         // Notify to other serializer function that going forward its going to serialize a list
         // The end of serializer will be in end() function of SerializeSeq
         self.is_list = true;
+        self.total_list += 1;
         Ok(self)
     }
 
@@ -396,13 +401,30 @@ impl<'a> ser::SerializeSeq for &'a mut RlpSerializer {
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
         let prefix = 0xc0 + self.list_output.len() as u8;
+        self.total_list -= 1;
 
-        self.output.push(prefix);
-        self.output.extend_from_slice(&self.list_output);
+        // If this is not the outer array
+        // Push into acutal_list_output
+        if self.total_list != 0 {
+            self.actual_list_output.push(prefix);
+            self.actual_list_output.extend_from_slice(&self.list_output);
+        } else {
+            //On Outer Array
+            //Check if there is anything in buffer
+            // If Yes push to actual_list output
+            if self.list_output.len() > 1 {
+                self.actual_list_output.push(prefix);
+                self.actual_list_output.extend_from_slice(&self.list_output);
+            }
+
+            let prefix = 0xc0 + self.actual_list_output.len() as u8;
+            self.output.push(prefix);
+            self.output.extend_from_slice(&self.actual_list_output);
+            self.is_list = false;
+        }
 
         //Flush list output
         self.list_output.clear();
-        self.is_list = false;
         Ok(())
     }
 }
@@ -518,13 +540,16 @@ mod tests {
 
     #[derive(Serialize)]
     struct Point {
-        x: Vec<String>,
+        x: Vec<Vec<String>>,
     }
 
     #[test]
     fn ser_test() {
         let point = Point {
-            x: vec![String::from("cat"), String::from("dog")],
+            x: vec![
+                vec![String::from("cat"), String::from("dog")],
+                vec![String::from("cat"), String::from("dog")],
+            ],
         };
 
         let bytes = to_rlp_bytes(&point);
