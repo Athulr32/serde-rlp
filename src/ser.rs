@@ -524,8 +524,10 @@ mod tests {
             x: vec![String::from("cat"), String::from("dog")],
         };
 
-        let bytes = to_rlp_bytes(&point);
+        let bytes = to_rlp_bytes(&point).expect("serialization failed");
 
-        println!("{:?}", bytes);
+        let expected = vec![0xc8, 0x83, 0x63, 0x61, 0x74, 0x83, 0x64, 0x6f, 0x67];
+
+        assert_eq!(bytes, expected);
     }
 }

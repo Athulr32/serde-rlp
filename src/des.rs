@@ -337,15 +337,20 @@ mod tests {
     use super::*;
     use serde::Serialize;
 
-    #[derive(Serialize, Deserialize, Debug)]
+    #[derive(Serialize, Deserialize, PartialEq, Debug)]
     struct Point {
-        y: Vec<String>,
+        x: Vec<String>,
     }
 
     #[test]
     fn des_test() {
-        let bytes = from_rlp_bytes::<Point>(&[200, 131, 99, 97, 116, 131, 100, 111, 103]);
+        let bytes = from_rlp_bytes::<Point>(&[200, 131, 99, 97, 116, 131, 100, 111, 103])
+            .expect("deserialization failed");
 
-        println!("{:?}", bytes);
+        let expected = Point {
+            x: vec![String::from("cat"), String::from("dog")],
+        };
+
+        assert_eq!(bytes, expected);
     }
 }
