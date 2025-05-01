@@ -170,12 +170,10 @@ impl<'a> serde::ser::Serializer for &'a mut RlpSerializer {
     }
 
     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
-        println!("Serializing I8");
         self.serialize_number(v as u64)
     }
 
     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
-        println!("Serializing U74");
         self.serialize_number(v as u64)
     }
 
@@ -216,7 +214,6 @@ impl<'a> serde::ser::Serializer for &'a mut RlpSerializer {
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
         //Convert string to byte array
         let str_bytes = v.as_bytes();
-        println!("Ser STR");
         self.serialize_bytes(str_bytes)
     }
 

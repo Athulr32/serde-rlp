@@ -75,7 +75,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
         } else if byte == 0x80 {
             return visitor.visit_bool(false);
         } else {
-            println!("Not supppp");
+            println!("Not supported");
             return Err(Error);
         }
     }
@@ -233,7 +233,6 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut RlpDeserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        println!("More");
         self.deserialize_bytes(visitor)
     }
 
